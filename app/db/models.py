@@ -6,7 +6,8 @@ from .database import Base
 from sqlalchemy import Integer, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy import Float
-
+from datetime import datetime, timezone
+from sqlalchemy import DateTime
 
 class Dataset(Base):
     __tablename__ = "datasets"
@@ -49,3 +50,15 @@ class ColumnProfile(Base):
     max = Column(Float, nullable=True)
 
     dataset_run = relationship("DatasetRun")
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"))
+
+    message = Column(String)
+    severity = Column(String)  # low, medium, high
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

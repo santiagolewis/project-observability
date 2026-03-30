@@ -5,7 +5,8 @@ from app.db import models
 from fastapi import UploadFile, File, HTTPException
 from app.services.profiling import profile_dataset
 from app.db.models import DatasetRun, ColumnProfile
-
+from app.services.anomaly_detection import detect_anomalies
+from app.db.models import Alert
 
 
 router = APIRouter()
@@ -45,6 +46,19 @@ def upload_dataset(
         row_count=profile["row_count"]
     )
 
+    
+
+    alerts = detect_anomalies(db, dataset_id, run)
+
+    for alert in alerts:
+        db.add(Alert(
+            dataset_id=dataset_id,
+            message=alert["message"],
+            severity=alert["severity"]
+        ))
+
+    db.commit()
+
     db.add(run)
     db.commit()
     db.refresh(run)
@@ -69,3 +83,9 @@ def upload_dataset(
         "message": "Dataset processed",
         "run_id": str(run.id)
     }
+
+
+@router.get("/datasets/{dataset_id}/alerts")
+def get_alerts(dataset_id: str, db: Session = Depends(get_db)):
+    alerts = db.query(models.Alert).filter(models.Alert.dataset_id == dataset_id).all()
+    return alerts
