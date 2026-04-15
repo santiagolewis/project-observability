@@ -26,6 +26,12 @@ def create_dataset(name: str, description: str = None, db: Session = Depends(get
     return dataset
 
 
+
+@router.get("/datasets")
+def get_datasets(db: Session = Depends(get_db)):
+    datasets = db.query(models.Dataset).all()
+    return datasets
+
 @router.post("/datasets/{dataset_id}/upload")
 def upload_dataset(
     dataset_id: str,
