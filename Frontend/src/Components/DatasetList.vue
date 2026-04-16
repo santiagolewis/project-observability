@@ -2,6 +2,7 @@
 import { ref, onMounted } from "vue";
 import { getDatasets } from "../services/api";
 
+const emit = defineEmits(["selectDataset"]);
 const datasets = ref([]);
 
 onMounted(async () => {
@@ -13,10 +14,13 @@ onMounted(async () => {
   <div>
     <h2>Datasets</h2>
 
-    <div v-if="datasets.length === 0">No hay datasets</div>
-
     <ul>
-      <li v-for="ds in datasets" :key="ds.id">
+      <li
+        v-for="ds in datasets"
+        :key="ds.id"
+        @click="emit('selectDataset', ds)"
+        style="cursor: pointer"
+      >
         <strong>{{ ds.name }}</strong> - {{ ds.description }}
       </li>
     </ul>

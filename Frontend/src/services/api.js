@@ -19,3 +19,8 @@ export async function getAlerts(datasetId) {
   const res = await fetch(`${API_URL}/datasets/${datasetId}/alerts`);
   return res.json();
 }
+
+export async function getRuns(datasetId) {
+  const res = await fetch(`http://localhost:8000/datasets/${datasetId}/runs`);
+  return res.json();
+}

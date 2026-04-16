@@ -1,13 +1,17 @@
 <script setup>
-import DatasetList from "./components/DatasetList.vue";
-import CreateDataset from "./components/CreateDataset.vue";
+import { ref } from "vue";
+import DatasetList from "./Components/DatasetList.vue";
+import CreateDataset from "./Components/CreateDataset.vue";
+import DatasetDetail from "./Components/DatasetDetail.vue";
+const selectedDataset = ref(null);
 </script>
 
 <template>
   <div>
     <h1>Data Observability Platform</h1>
 
-    <CreateDataset />
-    <DatasetList />
+    <DatasetList @selectDataset="selectedDataset = $event" />
+
+    <DatasetDetail v-if="selectedDataset" :dataset="selectedDataset" />
   </div>
 </template>

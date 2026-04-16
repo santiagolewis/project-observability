@@ -95,3 +95,11 @@ def upload_dataset(
 def get_alerts(dataset_id: str, db: Session = Depends(get_db)):
     alerts = db.query(models.Alert).filter(models.Alert.dataset_id == dataset_id).all()
     return alerts
+
+
+@router.get("/datasets/{dataset_id}/runs")
+def get_runs(dataset_id: str, db: Session = Depends(get_db)):
+    runs = db.query(models.DatasetRun).filter(
+        models.DatasetRun.dataset_id == dataset_id
+    ).all()
+    return runs
