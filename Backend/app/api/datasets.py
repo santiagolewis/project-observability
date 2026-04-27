@@ -7,9 +7,43 @@ from app.services.profiling import profile_dataset
 from app.db.models import DatasetRun, ColumnProfile
 from app.services.anomaly_detection import detect_anomalies
 from app.db.models import Alert
+from datetime import datetime, timedelta
 
 
 router = APIRouter()
+
+
+@router.get("/datasets/{dataset_id}/status")
+def get_dataset_status(dataset_id: str, db: Session = Depends(get_db)):
+    now = datetime.utcnow()
+    last_24h = now - timedelta(hours=24)
+
+    last_run = db.query(models.DatasetRun)\
+        .filter(models.DatasetRun.dataset_id == dataset_id)\
+        .order_by(models.DatasetRun.created_at.desc())\
+        .first()
+
+    alerts_count = db.query(models.Alert)\
+        .filter(
+            models.Alert.dataset_id == dataset_id,
+            models.Alert.created_at >= last_24h
+        ).count()
+
+    status = "healthy"
+
+    if alerts_count > 0:
+        status = "critical"
+    elif last_run and last_run.row_count < 10:
+        status = "warning"
+
+    return {
+        "status": status,
+        "last_run_at": last_run.created_at if last_run else None,
+        "alerts_last_24h": alerts_count,
+        "row_count": last_run.row_count if last_run else None
+    }
+
+
 
 
 @router.post("/datasets")

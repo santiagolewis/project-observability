@@ -24,3 +24,8 @@ export async function getRuns(datasetId) {
   const res = await fetch(`http://localhost:8000/datasets/${datasetId}/runs`);
   return res.json();
 }
+
+export async function getDatasetStatus(id) {
+  const res = await fetch(`http://localhost:8000/datasets/${id}/status`);
+  return await res.json();
+}
