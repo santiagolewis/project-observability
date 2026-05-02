@@ -18,6 +18,17 @@ def get_dataset_status(dataset_id: str, db: Session = Depends(get_db)):
     now = datetime.utcnow()
     last_24h = now - timedelta(hours=24)
 
+    runs = db.query(models.DatasetRun)\
+    .filter(models.DatasetRun.dataset_id == dataset_id)\
+    .order_by(models.DatasetRun.created_at.desc())\
+    .all()
+
+    if len(runs) < 2:
+        return {
+        "status": "learning",
+        "message": "Not enough data yet"
+    }
+
     last_run = db.query(models.DatasetRun)\
         .filter(models.DatasetRun.dataset_id == dataset_id)\
         .order_by(models.DatasetRun.created_at.desc())\
@@ -29,12 +40,17 @@ def get_dataset_status(dataset_id: str, db: Session = Depends(get_db)):
             models.Alert.created_at >= last_24h
         ).count()
 
-    status = "healthy"
+    last_run = runs[0]
+    previous_runs = runs[1:]
 
-    if alerts_count > 0:
+    avg = sum(r.row_count for r in previous_runs) / len(previous_runs)
+
+    if last_run.row_count < avg * 0.5:
         status = "critical"
-    elif last_run and last_run.row_count < 10:
+    elif last_run.row_count < avg * 0.8:
         status = "warning"
+    else:
+        status = "healthy"
 
     return {
         "status": status,

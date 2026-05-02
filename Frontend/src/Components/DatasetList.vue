@@ -24,7 +24,7 @@ onMounted(async () => {
 function getColor(status) {
   if (status === "critical") return "red";
   if (status === "warning") return "orange";
-  if (status === "unknown") return "gray";
+  if (status === "learning") return "gray";
   return "green";
 }
 </script>
