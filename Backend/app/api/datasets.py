@@ -1,155 +1,170 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from app.db.database import get_db
-from app.db import models
-from fastapi import UploadFile, File, HTTPException
-from app.services.profiling import profile_dataset
-from app.db.models import DatasetRun, ColumnProfile
-from app.services.anomaly_detection import detect_anomalies
-from app.db.models import Alert
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
+from uuid import UUID
 
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+
+from app.api.schemas import (
+    AlertOut,
+    DatasetOut,
+    DatasetRunDetailOut,
+    DatasetRunOut,
+    DatasetStatusOut,
+    DatasetSummaryOut,
+)
+from app.db import models
+from app.db.database import get_db
+from app.db.models import Alert, ColumnProfile, DatasetRun
+from app.services.anomaly_detection import detect_anomalies
+from app.services.kpi import build_dataset_summary, get_ordered_runs, resolve_dataset_status
+from app.services.profiling import profile_dataset
 
 router = APIRouter()
 
 
-@router.get("/datasets/{dataset_id}/status")
-def get_dataset_status(dataset_id: str, db: Session = Depends(get_db)):
-    now = datetime.utcnow()
-    last_24h = now - timedelta(hours=24)
-
-    runs = db.query(models.DatasetRun)\
-    .filter(models.DatasetRun.dataset_id == dataset_id)\
-    .order_by(models.DatasetRun.created_at.desc())\
-    .all()
-
-    if len(runs) < 2:
-        return {
-        "status": "learning",
-        "message": "Not enough data yet"
-    }
-
-    last_run = db.query(models.DatasetRun)\
-        .filter(models.DatasetRun.dataset_id == dataset_id)\
-        .order_by(models.DatasetRun.created_at.desc())\
-        .first()
-
-    alerts_count = db.query(models.Alert)\
-        .filter(
-            models.Alert.dataset_id == dataset_id,
-            models.Alert.created_at >= last_24h
-        ).count()
-
-    last_run = runs[0]
-    previous_runs = runs[1:]
-
-    avg = sum(r.row_count for r in previous_runs) / len(previous_runs)
-
-    if last_run.row_count < avg * 0.5:
-        status = "critical"
-    elif last_run.row_count < avg * 0.8:
-        status = "warning"
-    else:
-        status = "healthy"
-
-    return {
-        "status": status,
-        "last_run_at": last_run.created_at if last_run else None,
-        "alerts_last_24h": alerts_count,
-        "row_count": last_run.row_count if last_run else None
-    }
-
-
-
-
-@router.post("/datasets")
-def create_dataset(name: str, description: str = None, db: Session = Depends(get_db)):
-    dataset = models.Dataset(
-        name=name,
-        description=description
-    )
-
-    db.add(dataset)
-    db.commit()
-    db.refresh(dataset)
-
+def _get_dataset_or_404(db: Session, dataset_id: str) -> models.Dataset:
+    dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
     return dataset
 
 
+def _get_run_or_404(db: Session, dataset_id: str, run_id: str) -> DatasetRun:
+    run = (
+        db.query(DatasetRun)
+        .filter(DatasetRun.id == run_id, DatasetRun.dataset_id == dataset_id)
+        .first()
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
 
-@router.get("/datasets")
+
+@router.get("/datasets/{dataset_id}/status", response_model=DatasetStatusOut)
+def get_dataset_status(dataset_id: str, db: Session = Depends(get_db)):
+    _get_dataset_or_404(db, dataset_id)
+    return resolve_dataset_status(db, dataset_id)
+
+
+@router.get("/datasets/{dataset_id}/summary", response_model=DatasetSummaryOut)
+def get_dataset_summary(dataset_id: str, db: Session = Depends(get_db)):
+    _get_dataset_or_404(db, dataset_id)
+    return build_dataset_summary(db, dataset_id)
+
+
+@router.post("/datasets", response_model=DatasetOut)
+def create_dataset(
+    name: str,
+    description: str | None = None,
+    db: Session = Depends(get_db),
+):
+    dataset = models.Dataset(name=name, description=description)
+    db.add(dataset)
+    db.commit()
+    db.refresh(dataset)
+    return dataset
+
+
+@router.get("/datasets", response_model=list[DatasetOut])
 def get_datasets(db: Session = Depends(get_db)):
-    datasets = db.query(models.Dataset).all()
-    return datasets
+    return db.query(models.Dataset).all()
+
 
 @router.post("/datasets/{dataset_id}/upload")
 def upload_dataset(
     dataset_id: str,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # verificar dataset existe
-    dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    _get_dataset_or_404(db, dataset_id)
 
-    # profiling
     profile = profile_dataset(file.file)
 
-    # guardar dataset run
     run = DatasetRun(
         dataset_id=dataset_id,
-        row_count=profile["row_count"]
+        row_count=profile["row_count"],
     )
 
-    
+    alert_payloads = detect_anomalies(db, dataset_id, run, profile)
 
-    alerts = detect_anomalies(db, dataset_id, run)
+    try:
+        db.add(run)
+        db.flush()
 
-    for alert in alerts:
-        db.add(Alert(
-            dataset_id=dataset_id,
-            message=alert["message"],
-            severity=alert["severity"]
-        ))
+        for col in profile["columns"]:
+            db.add(
+                ColumnProfile(
+                    dataset_run_id=run.id,
+                    column_name=col["column_name"],
+                    data_type=col["data_type"],
+                    null_count=col["null_count"],
+                    null_pct=col["null_pct"],
+                    mean=col.get("mean"),
+                    std=col.get("std"),
+                    min=col.get("min"),
+                    max=col.get("max"),
+                )
+            )
 
-    db.commit()
+        for alert in alert_payloads:
+            db.add(
+                Alert(
+                    dataset_id=dataset_id,
+                    dataset_run_id=run.id,
+                    message=alert["message"],
+                    severity=alert["severity"],
+                    column_name=alert.get("column_name"),
+                    metric=alert.get("metric"),
+                    previous_value=alert.get("previous_value"),
+                    current_value=alert.get("current_value"),
+                )
+            )
 
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-
-    # guardar columnas
-    for col in profile["columns"]:
-        col_profile = ColumnProfile(
-            dataset_run_id=run.id,
-            column_name=col["column_name"],
-            data_type=col["data_type"],
-            null_count=col["null_count"],
-            mean=col.get("mean"),
-            std=col.get("std"),
-            min=col.get("min"),
-            max=col.get("max"),
-        )
-        db.add(col_profile)
-
-    db.commit()
+        db.commit()
+        db.refresh(run)
+    except Exception:
+        db.rollback()
+        raise
 
     return {
         "message": "Dataset processed",
-        "run_id": str(run.id)
+        "run_id": str(run.id),
+        "alerts_created": len(alert_payloads),
     }
 
 
-@router.get("/datasets/{dataset_id}/alerts")
+@router.get("/datasets/{dataset_id}/alerts", response_model=list[AlertOut])
 def get_alerts(dataset_id: str, db: Session = Depends(get_db)):
-    alerts = db.query(models.Alert).filter(models.Alert.dataset_id == dataset_id).all()
-    return alerts
+    _get_dataset_or_404(db, dataset_id)
+    return (
+        db.query(models.Alert)
+        .filter(models.Alert.dataset_id == dataset_id)
+        .order_by(models.Alert.created_at.desc())
+        .all()
+    )
 
 
-@router.get("/datasets/{dataset_id}/runs")
+@router.get("/datasets/{dataset_id}/runs", response_model=list[DatasetRunOut])
 def get_runs(dataset_id: str, db: Session = Depends(get_db)):
-    runs = db.query(models.DatasetRun).filter(
-        models.DatasetRun.dataset_id == dataset_id
-    ).all()
-    return runs
+    _get_dataset_or_404(db, dataset_id)
+    return get_ordered_runs(db, dataset_id)
+
+
+@router.get(
+    "/datasets/{dataset_id}/runs/{run_id}",
+    response_model=DatasetRunDetailOut,
+)
+def get_run_detail(
+    dataset_id: str,
+    run_id: UUID,
+    db: Session = Depends(get_db),
+):
+    _get_dataset_or_404(db, dataset_id)
+    run = _get_run_or_404(db, dataset_id, str(run_id))
+    columns = (
+        db.query(ColumnProfile)
+        .filter(ColumnProfile.dataset_run_id == run.id)
+        .order_by(ColumnProfile.column_name)
+        .all()
+    )
+    return {"run": run, "columns": columns}

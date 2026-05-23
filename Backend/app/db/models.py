@@ -1,13 +1,12 @@
 import uuid
-from sqlalchemy import Column, String, Text, DateTime
-from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime
-from .database import Base
-from sqlalchemy import Integer, ForeignKey
-from sqlalchemy.orm import relationship
-from sqlalchemy import Float
 from datetime import datetime, timezone
-from sqlalchemy import DateTime
+
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+
+from .database import Base
+
 
 class Dataset(Base):
     __tablename__ = "datasets"
@@ -16,9 +15,6 @@ class Dataset(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-
-
 
 
 class DatasetRun(Base):
@@ -30,8 +26,7 @@ class DatasetRun(Base):
     row_count = Column(Integer)
 
     dataset = relationship("Dataset")
-
-
+    column_profiles = relationship("ColumnProfile", back_populates="dataset_run")
 
 
 class ColumnProfile(Base):
@@ -43,13 +38,14 @@ class ColumnProfile(Base):
     column_name = Column(String)
     data_type = Column(String)
     null_count = Column(Integer)
+    null_pct = Column(Float, nullable=True)
 
     mean = Column(Float, nullable=True)
     std = Column(Float, nullable=True)
     min = Column(Float, nullable=True)
     max = Column(Float, nullable=True)
 
-    dataset_run = relationship("DatasetRun")
+    dataset_run = relationship("DatasetRun", back_populates="column_profiles")
 
 
 class Alert(Base):
@@ -57,8 +53,17 @@ class Alert(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"))
+    dataset_run_id = Column(UUID(as_uuid=True), ForeignKey("dataset_runs.id"), nullable=True)
 
     message = Column(String)
     severity = Column(String)  # low, medium, high
 
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    column_name = Column(String, nullable=True)
+    metric = Column(String, nullable=True)
+    previous_value = Column(String, nullable=True)
+    current_value = Column(String, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
