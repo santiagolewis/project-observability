@@ -1,4 +1,16 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// In dev, use the Vite proxy (/api → backend) so uploads work when the app is
+// opened via port forwarding or a non-localhost URL. Override with VITE_API_URL.
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? "/api" : "http://localhost:8000");
+
+class ApiError extends Error {
+  constructor(message, { network = false } = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.network = network;
+  }
+}
 
 async function handleResponse(res) {
   if (!res.ok) {
@@ -6,56 +18,63 @@ async function handleResponse(res) {
     try {
       const body = await res.json();
       if (body && body.detail) {
-        detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+        detail =
+          typeof body.detail === "string"
+            ? body.detail
+            : JSON.stringify(body.detail);
       }
     } catch {
       // ignore parse errors, fall back to default message
     }
-    throw new Error(detail);
+    throw new ApiError(detail);
   }
   return res.json();
 }
 
+async function apiFetch(path, options = {}) {
+  try {
+    const res = await fetch(`${API_URL}${path}`, options);
+    return handleResponse(res);
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(
+      "Could not reach the API server. Make sure the backend is running (port 8000) and restart the frontend dev server if you just changed settings.",
+      { network: true },
+    );
+  }
+}
+
 export async function getDatasets() {
-  const res = await fetch(`${API_URL}/datasets`);
-  return handleResponse(res);
+  return apiFetch("/datasets");
 }
 
 export async function createDataset(data) {
   const params = new URLSearchParams({ name: data.name });
   if (data.description) params.append("description", data.description);
-  const res = await fetch(`${API_URL}/datasets?${params.toString()}`, {
-    method: "POST",
-  });
-  return handleResponse(res);
+  return apiFetch(`/datasets?${params.toString()}`, { method: "POST" });
 }
 
 export async function uploadDataset(datasetId, file) {
   const formData = new FormData();
   formData.append("file", file);
-  const res = await fetch(`${API_URL}/datasets/${datasetId}/upload`, {
+  return apiFetch(`/datasets/${datasetId}/upload`, {
     method: "POST",
     body: formData,
   });
-  return handleResponse(res);
 }
 
 export async function getAlerts(datasetId) {
-  const res = await fetch(`${API_URL}/datasets/${datasetId}/alerts`);
-  return handleResponse(res);
+  return apiFetch(`/datasets/${datasetId}/alerts`);
 }
 
 export async function getRuns(datasetId) {
-  const res = await fetch(`${API_URL}/datasets/${datasetId}/runs`);
-  return handleResponse(res);
+  return apiFetch(`/datasets/${datasetId}/runs`);
 }
 
 export async function getDatasetStatus(id) {
-  const res = await fetch(`${API_URL}/datasets/${id}/status`);
-  return handleResponse(res);
+  return apiFetch(`/datasets/${id}/status`);
 }
 
 export async function getDatasetSummary(id) {
-  const res = await fetch(`${API_URL}/datasets/${id}/summary`);
-  return handleResponse(res);
+  return apiFetch(`/datasets/${id}/summary`);
 }
