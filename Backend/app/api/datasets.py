@@ -17,7 +17,7 @@ from app.db.database import get_db
 from app.db.models import Alert, ColumnProfile, DatasetRun
 from app.services.anomaly_detection import detect_anomalies
 from app.services.kpi import build_dataset_summary, get_ordered_runs, resolve_dataset_status
-from app.services.profiling import profile_dataset
+from app.services.profiling import UnsupportedFileError, profile_dataset
 
 router = APIRouter()
 
@@ -78,7 +78,10 @@ def upload_dataset(
 ):
     _get_dataset_or_404(db, dataset_id)
 
-    profile = profile_dataset(file.file)
+    try:
+        profile = profile_dataset(file.file, filename=file.filename)
+    except UnsupportedFileError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     run = DatasetRun(
         dataset_id=dataset_id,
