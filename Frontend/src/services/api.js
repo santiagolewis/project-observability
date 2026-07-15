@@ -1,31 +1,140 @@
-const API_URL = "http://localhost:8000";
+// In dev, use the Vite proxy (/api → backend) so uploads work when the app is
+// opened via port forwarding or a non-localhost URL. Override with VITE_API_URL.
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? "/api" : "http://localhost:8000");
+
+class ApiError extends Error {
+  constructor(message, { network = false } = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.network = network;
+  }
+}
+
+async function handleResponse(res) {
+  if (!res.ok) {
+    let detail = `Request failed with status ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body && body.detail) {
+        detail =
+          typeof body.detail === "string"
+            ? body.detail
+            : JSON.stringify(body.detail);
+      }
+    } catch {
+      // ignore parse errors, fall back to default message
+    }
+    throw new ApiError(detail);
+  }
+  return res.json();
+}
+
+async function apiFetch(path, options = {}) {
+  try {
+    const res = await fetch(`${API_URL}${path}`, options);
+    return handleResponse(res);
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(
+      "Could not reach the API server. Make sure the backend is running (port 8000) and restart the frontend dev server if you just changed settings.",
+      { network: true },
+    );
+  }
+}
+
+const jsonHeaders = { "Content-Type": "application/json" };
 
 export async function getDatasets() {
-  const res = await fetch(`${API_URL}/datasets`);
-  return res.json();
+  return apiFetch("/datasets");
 }
 
 export async function createDataset(data) {
-  const res = await fetch(
-    `${API_URL}/datasets?name=${data.name}&description=${data.description}`,
-    {
-      method: "POST",
-    },
-  );
-  return res.json();
+  return apiFetch("/datasets", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateDataset(id, data) {
+  return apiFetch(`/datasets/${id}`, {
+    method: "PATCH",
+    headers: jsonHeaders,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function uploadDataset(datasetId, file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch(`/datasets/${datasetId}/upload`, {
+    method: "POST",
+    body: formData,
+  });
 }
 
 export async function getAlerts(datasetId) {
-  const res = await fetch(`${API_URL}/datasets/${datasetId}/alerts`);
-  return res.json();
+  return apiFetch(`/datasets/${datasetId}/alerts`);
 }
 
 export async function getRuns(datasetId) {
-  const res = await fetch(`http://localhost:8000/datasets/${datasetId}/runs`);
-  return res.json();
+  return apiFetch(`/datasets/${datasetId}/runs`);
 }
 
 export async function getDatasetStatus(id) {
-  const res = await fetch(`http://localhost:8000/datasets/${id}/status`);
-  return await res.json();
+  return apiFetch(`/datasets/${id}/status`);
+}
+
+export async function getDatasetSummary(id) {
+  return apiFetch(`/datasets/${id}/summary`);
+}
+
+export async function getDatasetTrends(id) {
+  return apiFetch(`/datasets/${id}/trends`);
+}
+
+// ---------- Rules ----------
+export async function getRules(datasetId) {
+  return apiFetch(`/datasets/${datasetId}/rules`);
+}
+
+export async function createRule(datasetId, rule) {
+  return apiFetch(`/datasets/${datasetId}/rules`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(rule),
+  });
+}
+
+export async function updateRule(datasetId, ruleId, rule) {
+  return apiFetch(`/datasets/${datasetId}/rules/${ruleId}`, {
+    method: "PATCH",
+    headers: jsonHeaders,
+    body: JSON.stringify(rule),
+  });
+}
+
+export async function deleteRule(datasetId, ruleId) {
+  return apiFetch(`/datasets/${datasetId}/rules/${ruleId}`, {
+    method: "DELETE",
+  });
+}
+
+// ---------- Incidents ----------
+export async function getIncidents(datasetId) {
+  return apiFetch(`/datasets/${datasetId}/incidents`);
+}
+
+export async function getIncidentDetail(datasetId, incidentId) {
+  return apiFetch(`/datasets/${datasetId}/incidents/${incidentId}`);
+}
+
+export async function updateIncident(datasetId, incidentId, data) {
+  return apiFetch(`/datasets/${datasetId}/incidents/${incidentId}`, {
+    method: "PATCH",
+    headers: jsonHeaders,
+    body: JSON.stringify(data),
+  });
 }
