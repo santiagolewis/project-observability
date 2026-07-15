@@ -81,8 +81,8 @@ def _load_dataframe(raw: bytes, filename: Optional[str]) -> pd.DataFrame:
     return _read_csv(raw)
 
 
-def profile_dataset(file, filename: Optional[str] = None):
-    """Profile an uploaded dataset.
+def read_dataframe(file, filename: Optional[str] = None) -> pd.DataFrame:
+    """Load an uploaded file into a DataFrame.
 
     ``file`` may be a file-like object (e.g. ``UploadFile.file``) or raw bytes.
     ``filename`` is used to decide how to parse the file (CSV vs Excel).
@@ -102,6 +102,11 @@ def profile_dataset(file, filename: Optional[str] = None):
     if df.shape[1] == 0:
         raise UnsupportedFileError("The file does not contain any columns.")
 
+    return df
+
+
+def profile_dataframe(df: pd.DataFrame) -> dict:
+    """Compute aggregate column statistics for an in-memory DataFrame."""
     row_count = int(len(df))
 
     result = {
@@ -118,6 +123,7 @@ def profile_dataset(file, filename: Optional[str] = None):
             "data_type": str(series.dtype),
             "null_count": null_count,
             "null_pct": _null_pct(null_count, row_count),
+            "distinct_count": int(series.nunique(dropna=True)),
         }
 
         if pd.api.types.is_numeric_dtype(series):
@@ -131,3 +137,9 @@ def profile_dataset(file, filename: Optional[str] = None):
         result["columns"].append(col_data)
 
     return result
+
+
+def profile_dataset(file, filename: Optional[str] = None):
+    """Read and profile an uploaded dataset in one step (backwards-compatible)."""
+    df = read_dataframe(file, filename=filename)
+    return profile_dataframe(df)

@@ -1,34 +1,50 @@
 <script setup>
 import { ref, watch } from "vue";
-import { getRuns, getAlerts, getDatasetSummary, getDatasetStatus } from "../services/api";
+import {
+  getRuns,
+  getAlerts,
+  getDatasetSummary,
+  getDatasetStatus,
+  getDatasetTrends,
+} from "../services/api";
 import UploadDataset from "./UploadDataset.vue";
+import TrendsChart from "./TrendsChart.vue";
+import IncidentsPanel from "./IncidentsPanel.vue";
+import RulesPanel from "./RulesPanel.vue";
+import EditDataset from "./EditDataset.vue";
 
 const props = defineProps({
   dataset: Object,
 });
-const emit = defineEmits(["uploaded"]);
+const emit = defineEmits(["uploaded", "updated"]);
 
+const ds = ref(props.dataset);
 const runs = ref([]);
 const alerts = ref([]);
 const summary = ref(null);
 const status = ref(null);
+const trends = ref(null);
 const loading = ref(false);
 const error = ref(null);
+const showEdit = ref(false);
+const childRefreshKey = ref(0);
 
 async function loadData() {
   loading.value = true;
   error.value = null;
   try {
-    const [runsRes, alertsRes, summaryRes, statusRes] = await Promise.all([
-      getRuns(props.dataset.id),
-      getAlerts(props.dataset.id),
-      getDatasetSummary(props.dataset.id).catch(() => null),
-      getDatasetStatus(props.dataset.id).catch(() => null),
+    const [runsRes, alertsRes, summaryRes, statusRes, trendsRes] = await Promise.all([
+      getRuns(ds.value.id),
+      getAlerts(ds.value.id),
+      getDatasetSummary(ds.value.id).catch(() => null),
+      getDatasetStatus(ds.value.id).catch(() => null),
+      getDatasetTrends(ds.value.id).catch(() => null),
     ]);
     runs.value = runsRes;
     alerts.value = alertsRes;
     summary.value = summaryRes;
     status.value = statusRes;
+    trends.value = trendsRes;
   } catch (e) {
     error.value = e.message || "Could not load dataset details";
   } finally {
@@ -38,47 +54,77 @@ async function loadData() {
 
 function onUploaded(res) {
   loadData();
+  childRefreshKey.value++;
   emit("uploaded", res);
+}
+
+function onEdited(updated) {
+  ds.value = { ...ds.value, ...updated };
+  showEdit.value = false;
+  loadData();
+  emit("updated", updated);
 }
 
 function fmtPct(value) {
   if (value === null || value === undefined) return "—";
   return `${(value * 100).toFixed(1)}%`;
 }
-
 function fmtNumber(value) {
   if (value === null || value === undefined) return "—";
   return value.toLocaleString();
 }
-
 function fmtDelta(value) {
   if (value === null || value === undefined) return null;
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(1)}%`;
 }
-
 function fmtDate(value) {
   if (!value) return "—";
-  const d = new Date(value);
-  return d.toLocaleString();
+  return new Date(value).toLocaleString();
+}
+function fmtFreshness() {
+  if (!status.value) return "—";
+  const exp = status.value.expected_freshness_hours;
+  if (!exp) return "Not monitored";
+  const age = status.value.age_hours;
+  if (age === null || age === undefined) return "No runs yet";
+  const ageLabel = age < 1 ? `${Math.round(age * 60)}m` : `${age.toFixed(1)}h`;
+  return `${ageLabel} ago / every ${exp}h`;
 }
 
-watch(() => props.dataset, loadData, { immediate: true });
+watch(
+  () => props.dataset,
+  (val) => {
+    ds.value = val;
+    loadData();
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
   <div class="detail">
     <div class="detail-head card">
-      <div>
+      <div class="head-left">
         <div class="head-top">
-          <h2>{{ dataset.name }}</h2>
+          <h2>{{ ds.name }}</h2>
           <span :class="['pill', status?.status || 'unknown']">
             <span class="dot"></span>{{ status?.status || "unknown" }}
           </span>
+          <span :class="['crit', ds.criticality || 'medium']">
+            {{ ds.criticality || "medium" }}
+          </span>
         </div>
-        <p class="muted desc" v-if="dataset.description">{{ dataset.description }}</p>
+        <p class="muted desc" v-if="ds.description">{{ ds.description }}</p>
         <p class="muted desc" v-if="status?.message">{{ status.message }}</p>
+
+        <div class="meta">
+          <span class="meta-item"><b>Owner</b> {{ ds.owner || "—" }}</span>
+          <span class="meta-item"><b>Team</b> {{ ds.team || "—" }}</span>
+          <span class="meta-item"><b>Domain</b> {{ ds.domain || "—" }}</span>
+        </div>
       </div>
+      <button class="btn btn-ghost btn-sm" @click="showEdit = true">Edit</button>
     </div>
 
     <div v-if="error" class="card pad error">{{ error }}</div>
@@ -96,21 +142,21 @@ watch(() => props.dataset, loadData, { immediate: true });
         </span>
       </div>
       <div class="kpi card">
-        <span class="kpi-label">Columns</span>
-        <span class="kpi-value">{{ fmtNumber(summary.column_count) }}</span>
-        <span class="kpi-delta muted">{{ summary.run_count }} run(s)</span>
-      </div>
-      <div class="kpi card">
         <span class="kpi-label">Avg null rate</span>
         <span class="kpi-value">{{ fmtPct(summary.avg_null_pct) }}</span>
-        <span class="kpi-delta muted">
-          {{ summary.columns_with_null_increase }} col(s) ↑
-        </span>
+        <span class="kpi-delta muted">{{ summary.columns_with_null_increase }} col(s) ↑</span>
       </div>
       <div class="kpi card">
-        <span class="kpi-label">Alerts</span>
-        <span class="kpi-value">{{ fmtNumber(summary.alerts_total) }}</span>
-        <span class="kpi-delta muted">{{ summary.alerts_last_24h }} in 24h</span>
+        <span class="kpi-label">Freshness</span>
+        <span :class="['kpi-value', 'fresh', summary.freshness_status || 'na']">
+          {{ summary.freshness_status || "—" }}
+        </span>
+        <span class="kpi-delta muted">{{ fmtFreshness() }}</span>
+      </div>
+      <div class="kpi card">
+        <span class="kpi-label">Open incidents</span>
+        <span class="kpi-value">{{ fmtNumber(summary.open_incidents) }}</span>
+        <span class="kpi-delta muted">{{ summary.alerts_total }} alert(s) total</span>
       </div>
     </div>
 
@@ -118,10 +164,23 @@ watch(() => props.dataset, loadData, { immediate: true });
     <div class="card pad">
       <h3 class="section-title">Upload a new snapshot</h3>
       <p class="muted section-sub">
-        Each upload creates a run and is compared against previous runs to detect anomalies.
+        Each upload creates a run, compared against previous runs and your rules to detect issues.
       </p>
-      <UploadDataset :dataset-id="dataset.id" @uploaded="onUploaded" />
+      <UploadDataset :dataset-id="ds.id" @uploaded="onUploaded" />
     </div>
+
+    <!-- Trends -->
+    <div class="card pad">
+      <h3 class="section-title">Trends</h3>
+      <p class="muted section-sub">Historical evolution across runs.</p>
+      <TrendsChart :points="trends?.points || []" />
+    </div>
+
+    <!-- Incidents -->
+    <IncidentsPanel :dataset-id="ds.id" :refresh-key="childRefreshKey" />
+
+    <!-- Rules -->
+    <RulesPanel :dataset-id="ds.id" />
 
     <div class="two-col">
       <!-- Runs -->
@@ -159,6 +218,13 @@ watch(() => props.dataset, loadData, { immediate: true });
         </ul>
       </div>
     </div>
+
+    <EditDataset
+      v-if="showEdit"
+      :dataset="ds"
+      @close="showEdit = false"
+      @saved="onEdited"
+    />
   </div>
 </template>
 
@@ -179,6 +245,14 @@ watch(() => props.dataset, loadData, { immediate: true });
 
 .detail-head {
   padding: 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.head-left {
+  min-width: 0;
 }
 
 .head-top {
@@ -192,9 +266,52 @@ watch(() => props.dataset, loadData, { immediate: true });
   font-size: 1.25rem;
 }
 
+.crit {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.crit.high,
+.crit.critical {
+  color: var(--critical);
+  background: var(--critical-soft);
+  border-color: transparent;
+}
+.crit.medium {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: transparent;
+}
+.crit.low {
+  color: var(--healthy);
+  background: var(--healthy-soft);
+  border-color: transparent;
+}
+
 .desc {
   margin: 6px 0 0;
   font-size: 0.88rem;
+}
+
+.meta {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.meta-item {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.meta-item b {
+  color: var(--text);
+  font-weight: 600;
+  margin-right: 4px;
 }
 
 .kpis {
@@ -222,6 +339,23 @@ watch(() => props.dataset, loadData, { immediate: true });
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.kpi-value.fresh {
+  font-size: 1.15rem;
+  text-transform: capitalize;
+}
+.kpi-value.fresh.healthy {
+  color: var(--healthy);
+}
+.kpi-value.fresh.warning {
+  color: var(--warning);
+}
+.kpi-value.fresh.critical {
+  color: var(--critical);
+}
+.kpi-value.fresh.na {
+  color: var(--text-muted);
 }
 
 .kpi-delta {

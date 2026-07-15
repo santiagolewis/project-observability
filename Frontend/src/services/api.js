@@ -44,14 +44,26 @@ async function apiFetch(path, options = {}) {
   }
 }
 
+const jsonHeaders = { "Content-Type": "application/json" };
+
 export async function getDatasets() {
   return apiFetch("/datasets");
 }
 
 export async function createDataset(data) {
-  const params = new URLSearchParams({ name: data.name });
-  if (data.description) params.append("description", data.description);
-  return apiFetch(`/datasets?${params.toString()}`, { method: "POST" });
+  return apiFetch("/datasets", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateDataset(id, data) {
+  return apiFetch(`/datasets/${id}`, {
+    method: "PATCH",
+    headers: jsonHeaders,
+    body: JSON.stringify(data),
+  });
 }
 
 export async function uploadDataset(datasetId, file) {
@@ -77,4 +89,52 @@ export async function getDatasetStatus(id) {
 
 export async function getDatasetSummary(id) {
   return apiFetch(`/datasets/${id}/summary`);
+}
+
+export async function getDatasetTrends(id) {
+  return apiFetch(`/datasets/${id}/trends`);
+}
+
+// ---------- Rules ----------
+export async function getRules(datasetId) {
+  return apiFetch(`/datasets/${datasetId}/rules`);
+}
+
+export async function createRule(datasetId, rule) {
+  return apiFetch(`/datasets/${datasetId}/rules`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(rule),
+  });
+}
+
+export async function updateRule(datasetId, ruleId, rule) {
+  return apiFetch(`/datasets/${datasetId}/rules/${ruleId}`, {
+    method: "PATCH",
+    headers: jsonHeaders,
+    body: JSON.stringify(rule),
+  });
+}
+
+export async function deleteRule(datasetId, ruleId) {
+  return apiFetch(`/datasets/${datasetId}/rules/${ruleId}`, {
+    method: "DELETE",
+  });
+}
+
+// ---------- Incidents ----------
+export async function getIncidents(datasetId) {
+  return apiFetch(`/datasets/${datasetId}/incidents`);
+}
+
+export async function getIncidentDetail(datasetId, incidentId) {
+  return apiFetch(`/datasets/${datasetId}/incidents/${incidentId}`);
+}
+
+export async function updateIncident(datasetId, incidentId, data) {
+  return apiFetch(`/datasets/${datasetId}/incidents/${incidentId}`, {
+    method: "PATCH",
+    headers: jsonHeaders,
+    body: JSON.stringify(data),
+  });
 }

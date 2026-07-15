@@ -10,3 +10,7 @@ NULL_RATE_MIN_DELTA = 0.01  # ignore noise below 1 percentage point
 # Numeric columns: mean shift vs prior run std
 MEAN_SHIFT_STD_MULTIPLIER = 3.0
 MEAN_MIN_STD = 1e-9
+
+# Freshness: how late (relative to expected_freshness_hours) before escalating.
+# warning once the dataset is overdue, critical once it is this many times overdue.
+FRESHNESS_CRITICAL_MULTIPLIER = 2.0

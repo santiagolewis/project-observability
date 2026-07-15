@@ -20,6 +20,13 @@ function handleCreated(dataset) {
 function refreshList() {
   listRefreshKey.value++;
 }
+
+function onDatasetUpdated(updated) {
+  if (updated && updated.id) {
+    selectedDataset.value = { ...selectedDataset.value, ...updated };
+  }
+  listRefreshKey.value++;
+}
 </script>
 
 <template>
@@ -51,6 +58,7 @@ function refreshList() {
           v-if="selectedDataset"
           :dataset="selectedDataset"
           @uploaded="refreshList"
+          @updated="onDatasetUpdated"
         />
         <div v-else class="empty-state card">
           <div class="empty-icon">📊</div>

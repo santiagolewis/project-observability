@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -11,7 +11,32 @@ class DatasetOut(BaseModel):
     id: UUID
     name: str
     description: Optional[str] = None
+    owner: Optional[str] = None
+    team: Optional[str] = None
+    domain: Optional[str] = None
+    criticality: Optional[str] = "medium"
+    expected_freshness_hours: Optional[int] = None
     created_at: Optional[datetime] = None
+
+
+class DatasetCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    owner: Optional[str] = None
+    team: Optional[str] = None
+    domain: Optional[str] = None
+    criticality: Optional[str] = "medium"
+    expected_freshness_hours: Optional[int] = None
+
+
+class DatasetUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    owner: Optional[str] = None
+    team: Optional[str] = None
+    domain: Optional[str] = None
+    criticality: Optional[str] = None
+    expected_freshness_hours: Optional[int] = None
 
 
 class DatasetRunOut(BaseModel):
@@ -31,6 +56,7 @@ class ColumnProfileOut(BaseModel):
     data_type: Optional[str] = None
     null_count: Optional[int] = None
     null_pct: Optional[float] = None
+    distinct_count: Optional[int] = None
     mean: Optional[float] = None
     std: Optional[float] = None
     min: Optional[float] = None
@@ -48,6 +74,7 @@ class AlertOut(BaseModel):
     id: UUID
     dataset_id: UUID
     dataset_run_id: Optional[UUID] = None
+    incident_id: Optional[UUID] = None
     message: str
     severity: str
     column_name: Optional[str] = None
@@ -57,6 +84,61 @@ class AlertOut(BaseModel):
     created_at: Optional[datetime] = None
 
 
+# ---------- Rules ----------
+class RuleCreate(BaseModel):
+    column_name: Optional[str] = None
+    rule_type: str
+    config: dict[str, Any] = {}
+    severity: str = "high"
+    is_active: bool = True
+
+
+class RuleUpdate(BaseModel):
+    column_name: Optional[str] = None
+    rule_type: Optional[str] = None
+    config: Optional[dict[str, Any]] = None
+    severity: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class RuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    dataset_id: UUID
+    column_name: Optional[str] = None
+    rule_type: str
+    config: dict[str, Any] = {}
+    severity: str
+    is_active: bool
+    created_at: Optional[datetime] = None
+
+
+# ---------- Incidents ----------
+class IncidentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    dataset_id: UUID
+    title: str
+    status: str
+    severity: str
+    assignee: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+
+
+class IncidentDetailOut(IncidentOut):
+    alerts: list[AlertOut] = []
+
+
+class IncidentUpdate(BaseModel):
+    status: Optional[str] = None
+    assignee: Optional[str] = None
+
+
+# ---------- Status / Summary ----------
 class DatasetStatusOut(BaseModel):
     status: str
     message: Optional[str] = None
@@ -65,6 +147,10 @@ class DatasetStatusOut(BaseModel):
     row_count: Optional[int] = None
     row_count_vs_avg_pct: Optional[float] = None
     high_severity_alerts_24h: int = 0
+    freshness_status: Optional[str] = None
+    expected_freshness_hours: Optional[int] = None
+    age_hours: Optional[float] = None
+    is_stale: bool = False
 
 
 class ColumnKpiDelta(BaseModel):
@@ -87,5 +173,26 @@ class DatasetSummaryOut(BaseModel):
     columns_with_null_increase: int = 0
     alerts_total: int = 0
     alerts_last_24h: int = 0
+    open_incidents: int = 0
     status: str
+    freshness_status: Optional[str] = None
+    age_hours: Optional[float] = None
+    expected_freshness_hours: Optional[int] = None
     top_column_deltas: list[ColumnKpiDelta] = []
+
+
+# ---------- Trends ----------
+class TrendPoint(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    run_id: UUID
+    created_at: Optional[datetime] = None
+    row_count: Optional[int] = None
+    column_count: Optional[int] = None
+    avg_null_pct: Optional[float] = None
+    alert_count: int = 0
+
+
+class DatasetTrendsOut(BaseModel):
+    dataset_id: UUID
+    points: list[TrendPoint] = []
